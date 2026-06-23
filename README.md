@@ -66,3 +66,11 @@ streamlit run app.py
 - 댓글 작성자 이름 보강은 Notion integration의 user information capability가 필요합니다. 권한이 없으면 작성자 ID로 fallback합니다.
 - 프리셋은 `presets.json`에 저장되며, Notion API token은 저장하지 않습니다.
 - 날짜 필터의 `기간` 모드에서 종료일을 비우면 시작일과 같은 날짜로 처리합니다.
+
+## 개발 인수인계
+
+새 Codex/에이전트 세션에서 이어서 작업할 때는 `AGENTS.md`와 `docs/project-state.md`를 먼저 읽으면 됩니다.
+
+- `AGENTS.md`: 짧은 자동 로드 지침, setup/test/architecture map
+- `docs/project-state.md`: 현재 구현 상태, 제약, 다음 작업, 새 세션용 handoff prompt
+- `docs/decisions/`: 오래 유지해야 하는 결정 기록

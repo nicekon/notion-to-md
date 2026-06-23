@@ -6,3 +6,4 @@ __pycache__/
 exports/
 presets.json
 .streamlit/secrets.toml
+CLAUDE.local.md
