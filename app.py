@@ -48,6 +48,10 @@ def get_client(token: str, notion_version: str) -> NotionClient:
     return NotionClient(token=token, notion_version=notion_version)
 
 
+def render_version_badge() -> None:
+    st.caption(f"실행 중인 버전 `{APP_VERSION}`")
+
+
 def schema_options(properties: dict[str, dict], prop_types: set[str], label: str) -> list[str]:
     values = property_schema_by_type(properties, prop_types)
     return ["사용 안 함"] + values if values else ["사용 안 함"]
@@ -240,12 +244,12 @@ def apply_preset_to_state(name: str, preset: dict[str, Any], token: str) -> None
         "keyword",
         "max_pages",
         "filename_style_label",
+        "comments_only",
         "include_frontmatter",
         "include_properties",
         "include_comments_section",
         "omit_empty_comments",
         "only_pages_with_comments",
-        "comments_only_export",
         "include_source_url",
         "comment_scope",
         "max_comment_blocks",
@@ -301,12 +305,12 @@ def current_preset_payload(
         "end_date": date_to_preset_value(st.session_state.get("end_date")),
         "max_pages": st.session_state.get("max_pages", 100),
         "filename_style_label": st.session_state.get("filename_style_label", "제목-페이지ID.md"),
+        "comments_only": st.session_state.get("comments_only", False),
         "include_frontmatter": st.session_state.get("include_frontmatter", True),
         "include_properties": st.session_state.get("include_properties", True),
         "include_comments_section": st.session_state.get("include_comments_section", True),
         "omit_empty_comments": st.session_state.get("omit_empty_comments", True),
         "only_pages_with_comments": st.session_state.get("only_pages_with_comments", False),
-        "comments_only_export": st.session_state.get("comments_only_export", False),
         "include_source_url": st.session_state.get("include_source_url", False),
         "comment_scope": st.session_state.get("comment_scope", "페이지 댓글만"),
         "max_comment_blocks": st.session_state.get("max_comment_blocks", 300),
@@ -445,6 +449,7 @@ def clear_preview(*, reset_property_selection: bool = False) -> None:
         "export_summary_path",
         "export_skipped_no_comments",
         "export_skipped_comment_lookup_failed",
+        "export_skipped_comment_pages",
         "preview_editor",
         "preview_editor_with_filename",
     ]
@@ -478,6 +483,15 @@ def issue_record(page: dict[str, Any], step: str, exc: Exception | str, severity
         "step": step,
         "title": page_title(page),
         "message": exception_message(exc) if isinstance(exc, Exception) else exc,
+        "url": page.get("url", ""),
+        "page_id": page.get("id", ""),
+    }
+
+
+def skipped_comment_page_record(page: dict[str, Any], reason: str) -> dict[str, str]:
+    return {
+        "reason": reason,
+        "title": page_title(page),
         "url": page.get("url", ""),
         "page_id": page.get("id", ""),
     }
@@ -607,7 +621,7 @@ def main() -> None:
     st.session_state.setdefault("wizard_step", 1)
 
     st.title("Notion DB to Markdown")
-    st.caption(f"실행 중인 버전: {APP_VERSION}")
+    render_version_badge()
     st.caption("Notion DB를 조회해서 선택한 페이지의 본문과 댓글을 Markdown으로 저장합니다.")
 
     with st.sidebar:
@@ -1074,26 +1088,51 @@ def main() -> None:
     selected_ids = selected_preview_page_ids(edited_rows)
 
     st.write("Markdown 구성")
-    comments_only_export = st.checkbox("댓글만 저장 (본문 제외)", value=False, key="comments_only_export")
+    comments_only = st.checkbox(
+        "댓글만 저장 (본문/Properties 제외)",
+        value=False,
+        key="comments_only",
+        help="파일에는 제목과 Comments 섹션만 저장합니다. YAML frontmatter는 아래 설정을 따릅니다.",
+    )
     format_left, format_middle, format_right = st.columns(3)
     with format_left:
         include_frontmatter = st.checkbox("YAML frontmatter 포함", value=True, key="include_frontmatter")
-        include_source_url = st.checkbox("원본 Notion URL 표시", value=False, key="include_source_url")
+        if comments_only:
+            include_source_url = st.checkbox("원본 Notion URL 표시", value=False, disabled=True)
+        else:
+            include_source_url = st.checkbox("원본 Notion URL 표시", value=False, key="include_source_url")
     with format_middle:
-        include_properties = st.checkbox("Properties 표 포함", value=True, key="include_properties")
+        if comments_only:
+            include_properties = st.checkbox("Properties 표 포함", value=False, disabled=True)
+        else:
+            include_properties = st.checkbox("Properties 표 포함", value=True, key="include_properties")
     with format_right:
-        include_comments_section = st.checkbox("댓글 섹션 포함", value=True, key="include_comments_section")
-        omit_empty_comments = st.checkbox(
-            "댓글 없으면 Comments 생략",
-            value=True,
-            key="omit_empty_comments",
-            disabled=not include_comments_section,
+        if comments_only:
+            include_comments_section = st.checkbox("댓글 섹션 포함", value=True, disabled=True)
+            effective_include_comments_section = True
+            omit_empty_comments = st.checkbox("댓글 없으면 Comments 생략", value=False, disabled=True)
+            effective_omit_empty_comments = False
+        else:
+            include_comments_section = st.checkbox("댓글 섹션 포함", value=True, key="include_comments_section")
+            effective_include_comments_section = include_comments_section
+            omit_empty_comments = st.checkbox(
+                "댓글 없으면 Comments 생략",
+                value=True,
+                key="omit_empty_comments",
+                disabled=not effective_include_comments_section,
+            )
+            effective_omit_empty_comments = omit_empty_comments
+        only_pages_with_comments = st.checkbox(
+            "댓글 있는 페이지만 저장 (댓글 없는 페이지 제외)",
+            value=False,
+            key="only_pages_with_comments",
+            help="내보내기 시 댓글 API로 댓글 유무를 확인한 뒤 댓글이 0개인 페이지는 파일을 만들지 않습니다.",
         )
-        only_pages_with_comments = st.checkbox("댓글 있는 페이지만 저장", value=False, key="only_pages_with_comments")
 
-    should_query_comments = include_comments_section or only_pages_with_comments or comments_only_export
-    effective_include_comments = include_comments_section or comments_only_export
-    effective_only_pages_with_comments = only_pages_with_comments or comments_only_export
+    effective_include_source_url = False if comments_only else include_source_url
+    effective_include_properties = False if comments_only else include_properties
+    include_body_section = not comments_only
+    should_query_comments = effective_include_comments_section or only_pages_with_comments
     export_left, export_right = st.columns(2)
     with export_left:
         comment_scope = st.radio(
@@ -1114,11 +1153,13 @@ def main() -> None:
             disabled=not should_query_comments or comment_scope == "페이지 댓글만",
         )
 
-    if comments_only_export:
-        st.caption("댓글만 저장하면 본문 조회와 Body 섹션을 건너뛰고, 댓글이 있는 페이지만 저장합니다.")
-    elif only_pages_with_comments and not include_comments_section:
+    if comments_only:
+        st.caption("댓글만 저장을 켜면 본문 Markdown은 조회하지 않고, 파일에는 제목과 Comments 섹션만 저장합니다.")
+    if only_pages_with_comments and not effective_include_comments_section:
         st.caption("댓글 섹션은 끄고 댓글 여부만 확인합니다. 댓글이 있는 페이지의 본문만 저장됩니다.")
-    elif not include_comments_section:
+    elif only_pages_with_comments:
+        st.caption("저장 후 댓글 조건으로 제외된 페이지는 결과에 제목과 사유로 표시됩니다.")
+    elif not effective_include_comments_section:
         st.caption("댓글 섹션을 끄면 댓글 API 조회를 건너뜁니다.")
     if should_query_comments and comment_scope == "페이지 + 본문 블록 댓글":
         st.caption("본문 블록 댓글까지 조회하면 페이지 수와 블록 수에 따라 시간이 더 걸릴 수 있습니다.")
@@ -1136,6 +1177,7 @@ def main() -> None:
         files: list[Path] = []
         skipped_no_comments = 0
         skipped_comment_lookup_failed = 0
+        skipped_comment_pages: list[dict[str, str]] = []
         selected_pages = [page for page in preview_pages if page.get("id") in selected_ids]
 
         progress = st.progress(0)
@@ -1154,18 +1196,20 @@ def main() -> None:
                     )
                 except NotionAPIError as exc:
                     issues.append(issue_record(page, "댓글 조회", exc, "warning"))
-                    if effective_only_pages_with_comments:
+                    if only_pages_with_comments:
                         skipped_comment_lookup_failed += 1
+                        skipped_comment_pages.append(skipped_comment_page_record(page, "댓글 조회 실패"))
                         progress.progress(index / len(selected_pages))
                         continue
 
-            if effective_only_pages_with_comments and not comments:
+            if only_pages_with_comments and not comments:
                 skipped_no_comments += 1
+                skipped_comment_pages.append(skipped_comment_page_record(page, "댓글 없음"))
                 progress.progress(index / len(selected_pages))
                 continue
 
             body_markdown = ""
-            if not comments_only_export:
+            if include_body_section:
                 try:
                     body_markdown, body_warnings = get_cached_body(client, page["id"])
                     warnings.extend(body_warnings)
@@ -1186,11 +1230,11 @@ def main() -> None:
                     person_property=preview_config.get("person_property"),
                     option_property=preview_config.get("option_property"),
                     include_frontmatter=include_frontmatter,
-                    include_properties=include_properties,
-                    include_body=not comments_only_export,
-                    include_comments=effective_include_comments,
-                    omit_empty_comments=omit_empty_comments,
-                    include_source_url=include_source_url,
+                    include_properties=effective_include_properties,
+                    include_body=include_body_section,
+                    include_comments=effective_include_comments_section,
+                    omit_empty_comments=effective_omit_empty_comments,
+                    include_source_url=effective_include_source_url,
                 )
                 results.append(result)
                 files.append(result.file_path)
@@ -1206,6 +1250,7 @@ def main() -> None:
         st.session_state["export_issues"] = issues
         st.session_state["export_skipped_no_comments"] = skipped_no_comments
         st.session_state["export_skipped_comment_lookup_failed"] = skipped_comment_lookup_failed
+        st.session_state["export_skipped_comment_pages"] = skipped_comment_pages
 
         summary_metadata = {
             "DB URL": db_url,
@@ -1225,13 +1270,14 @@ def main() -> None:
             "Preview skipped": preview_skipped,
             "Selected pages": len(selected_pages),
             "Filename style": filename_style_label,
+            "Comments only": comments_only,
             "YAML frontmatter": include_frontmatter,
-            "Properties table": include_properties,
-            "Source URL in body": include_source_url,
-            "Comments section": effective_include_comments,
-            "Comments only export": comments_only_export,
-            "Omit empty comments": omit_empty_comments,
-            "Only pages with comments": effective_only_pages_with_comments,
+            "Properties table": effective_include_properties,
+            "Body section": include_body_section,
+            "Source URL in body": effective_include_source_url,
+            "Comments section": effective_include_comments_section,
+            "Omit empty comments": effective_omit_empty_comments,
+            "Only pages with comments": only_pages_with_comments,
             "Skipped without comments": skipped_no_comments,
             "Skipped comment lookup failed": skipped_comment_lookup_failed,
             "Comment scope": comment_scope if should_query_comments else "댓글 조회 안 함",
@@ -1243,6 +1289,7 @@ def main() -> None:
                 metadata=summary_metadata,
                 results=results,
                 issues=issues,
+                skipped_pages=skipped_comment_pages,
             )
             files.append(summary_path)
             st.session_state["export_summary_path"] = summary_path
@@ -1268,6 +1315,7 @@ def main() -> None:
     export_issues = st.session_state.get("export_issues", [])
     skipped_no_comments = st.session_state.get("export_skipped_no_comments", 0)
     skipped_comment_lookup_failed = st.session_state.get("export_skipped_comment_lookup_failed", 0)
+    skipped_comment_pages = st.session_state.get("export_skipped_comment_pages", [])
 
     if not results and not export_issues and not skipped_no_comments and not skipped_comment_lookup_failed:
         render_wizard_nav(current_step=3, previous_step=2)
@@ -1286,6 +1334,19 @@ def main() -> None:
         st.caption(
             f"댓글 없음 {skipped_no_comments}개"
             + (f", 댓글 조회 실패 {skipped_comment_lookup_failed}개" if skipped_comment_lookup_failed else "")
+        )
+    if skipped_comment_pages:
+        st.write("댓글 조건으로 제외된 페이지")
+        st.dataframe(
+            skipped_comment_pages,
+            column_config={
+                "reason": "사유",
+                "title": "제목",
+                "url": st.column_config.LinkColumn("Notion"),
+                "page_id": None,
+            },
+            width="stretch",
+            hide_index=True,
         )
     if output_dir:
         st.write("저장 폴더")

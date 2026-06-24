@@ -46,6 +46,7 @@ The UI is a three-step wizard.
    - User sees preview counts, warnings, issues, and expected filenames.
    - User selects pages in a table.
    - User selects filename style and Markdown options.
+   - User can choose comments-only output, which skips body Markdown and Properties.
    - User can include/exclude YAML frontmatter, properties table, source URL, comments section.
    - User can save only pages that have comments or export comments only.
    - User chooses comment scope: page comments only, or page + descendant block comments.
@@ -53,6 +54,7 @@ The UI is a three-step wizard.
 
 ## Implemented Features
 
+- Shows a local app version caption under the main title so the browser can be checked against the current code.
 - Loads Notion DB/data source schema.
 - Uses Notion data source query API.
 - Supports API-side date/status/select/multi-select filters where possible.
@@ -66,8 +68,10 @@ The UI is a three-step wizard.
 - Caches Notion user lookup results during a session.
 - Falls back to user ID if Notion user information capability is missing.
 - Generates Markdown frontmatter and properties table.
+- Supports comments-only Markdown output that skips page body retrieval and omits Body/Properties sections.
 - Omits empty comments section when configured.
-- Supports "댓글 있는 페이지만 저장" and "댓글만 저장".
+- Supports "댓글 있는 페이지만 저장".
+- Shows pages skipped by the comment-presence filter in the UI and export summary.
 - Records partial failures and warnings in UI and export summary.
 - Creates `_export_summary.md` for each export batch.
 - Prevents duplicate filenames by appending suffixes.

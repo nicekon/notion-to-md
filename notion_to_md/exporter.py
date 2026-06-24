@@ -379,12 +379,14 @@ def write_export_summary_file(
     metadata: dict[str, Any],
     results: list[ExportResult],
     issues: list[dict[str, str]],
+    skipped_pages: list[dict[str, str]] | None = None,
 ) -> Path:
     directory = ensure_dir(output_dir)
     summary_path = directory / "_export_summary.md"
     exported_at = datetime.now(timezone.utc).astimezone().isoformat()
     error_count = sum(1 for issue in issues if issue.get("severity") == "error")
     warning_count = sum(1 for issue in issues if issue.get("severity") == "warning")
+    skipped_pages = skipped_pages or []
 
     lines = [
         "# Export Summary",
@@ -422,6 +424,18 @@ def write_export_summary_file(
             )
     else:
         lines.append("| _No files saved_ |  |  |  |")
+
+    lines.extend(["", "## Skipped Pages", "", "| Reason | Title | Notion |", "| --- | --- | --- |"])
+    if skipped_pages:
+        for skipped_page in skipped_pages:
+            lines.append(
+                "| "
+                f"{summary_cell(skipped_page.get('reason', ''))} | "
+                f"{summary_cell(skipped_page.get('title', ''))} | "
+                f"{summary_cell(skipped_page.get('url', ''))} |"
+            )
+    else:
+        lines.append("| _None_ |  |  |")
 
     lines.extend(["", "## Issues", "", "| Severity | Step | Title | Message | Notion |", "| --- | --- | --- | --- | --- |"])
     if issues:
