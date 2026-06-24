@@ -37,6 +37,11 @@ st.set_page_config(page_title="Notion to Markdown", page_icon="N", layout="wide"
 
 
 PRESETS_PATH = Path("presets.json")
+APP_VERSION = "v2026.06.24-comments-only"
+
+
+def render_app_footer() -> None:
+    st.caption(f"Notion to Markdown · {APP_VERSION}")
 
 
 def get_client(token: str, notion_version: str) -> NotionClient:
@@ -240,6 +245,7 @@ def apply_preset_to_state(name: str, preset: dict[str, Any], token: str) -> None
         "include_comments_section",
         "omit_empty_comments",
         "only_pages_with_comments",
+        "comments_only_export",
         "include_source_url",
         "comment_scope",
         "max_comment_blocks",
@@ -300,6 +306,7 @@ def current_preset_payload(
         "include_comments_section": st.session_state.get("include_comments_section", True),
         "omit_empty_comments": st.session_state.get("omit_empty_comments", True),
         "only_pages_with_comments": st.session_state.get("only_pages_with_comments", False),
+        "comments_only_export": st.session_state.get("comments_only_export", False),
         "include_source_url": st.session_state.get("include_source_url", False),
         "comment_scope": st.session_state.get("comment_scope", "페이지 댓글만"),
         "max_comment_blocks": st.session_state.get("max_comment_blocks", 300),
@@ -600,6 +607,7 @@ def main() -> None:
     st.session_state.setdefault("wizard_step", 1)
 
     st.title("Notion DB to Markdown")
+    st.caption(f"실행 중인 버전: {APP_VERSION}")
     st.caption("Notion DB를 조회해서 선택한 페이지의 본문과 댓글을 Markdown으로 저장합니다.")
 
     with st.sidebar:
@@ -1066,6 +1074,7 @@ def main() -> None:
     selected_ids = selected_preview_page_ids(edited_rows)
 
     st.write("Markdown 구성")
+    comments_only_export = st.checkbox("댓글만 저장 (본문 제외)", value=False, key="comments_only_export")
     format_left, format_middle, format_right = st.columns(3)
     with format_left:
         include_frontmatter = st.checkbox("YAML frontmatter 포함", value=True, key="include_frontmatter")
@@ -1082,7 +1091,9 @@ def main() -> None:
         )
         only_pages_with_comments = st.checkbox("댓글 있는 페이지만 저장", value=False, key="only_pages_with_comments")
 
-    should_query_comments = include_comments_section or only_pages_with_comments
+    should_query_comments = include_comments_section or only_pages_with_comments or comments_only_export
+    effective_include_comments = include_comments_section or comments_only_export
+    effective_only_pages_with_comments = only_pages_with_comments or comments_only_export
     export_left, export_right = st.columns(2)
     with export_left:
         comment_scope = st.radio(
@@ -1103,7 +1114,9 @@ def main() -> None:
             disabled=not should_query_comments or comment_scope == "페이지 댓글만",
         )
 
-    if only_pages_with_comments and not include_comments_section:
+    if comments_only_export:
+        st.caption("댓글만 저장하면 본문 조회와 Body 섹션을 건너뛰고, 댓글이 있는 페이지만 저장합니다.")
+    elif only_pages_with_comments and not include_comments_section:
         st.caption("댓글 섹션은 끄고 댓글 여부만 확인합니다. 댓글이 있는 페이지의 본문만 저장됩니다.")
     elif not include_comments_section:
         st.caption("댓글 섹션을 끄면 댓글 API 조회를 건너뜁니다.")
@@ -1141,24 +1154,26 @@ def main() -> None:
                     )
                 except NotionAPIError as exc:
                     issues.append(issue_record(page, "댓글 조회", exc, "warning"))
-                    if only_pages_with_comments:
+                    if effective_only_pages_with_comments:
                         skipped_comment_lookup_failed += 1
                         progress.progress(index / len(selected_pages))
                         continue
 
-            if only_pages_with_comments and not comments:
+            if effective_only_pages_with_comments and not comments:
                 skipped_no_comments += 1
                 progress.progress(index / len(selected_pages))
                 continue
 
-            try:
-                body_markdown, body_warnings = get_cached_body(client, page["id"])
-                warnings.extend(body_warnings)
-                issues.extend(warning_records(page, "본문 조회", body_warnings))
-            except NotionAPIError as exc:
-                issues.append(issue_record(page, "본문 조회", exc))
-                progress.progress(index / len(selected_pages))
-                continue
+            body_markdown = ""
+            if not comments_only_export:
+                try:
+                    body_markdown, body_warnings = get_cached_body(client, page["id"])
+                    warnings.extend(body_warnings)
+                    issues.extend(warning_records(page, "본문 조회", body_warnings))
+                except NotionAPIError as exc:
+                    issues.append(issue_record(page, "본문 조회", exc))
+                    progress.progress(index / len(selected_pages))
+                    continue
 
             try:
                 result = write_markdown_file(
@@ -1172,7 +1187,8 @@ def main() -> None:
                     option_property=preview_config.get("option_property"),
                     include_frontmatter=include_frontmatter,
                     include_properties=include_properties,
-                    include_comments=include_comments_section,
+                    include_body=not comments_only_export,
+                    include_comments=effective_include_comments,
                     omit_empty_comments=omit_empty_comments,
                     include_source_url=include_source_url,
                 )
@@ -1212,9 +1228,10 @@ def main() -> None:
             "YAML frontmatter": include_frontmatter,
             "Properties table": include_properties,
             "Source URL in body": include_source_url,
-            "Comments section": include_comments_section,
+            "Comments section": effective_include_comments,
+            "Comments only export": comments_only_export,
             "Omit empty comments": omit_empty_comments,
-            "Only pages with comments": only_pages_with_comments,
+            "Only pages with comments": effective_only_pages_with_comments,
             "Skipped without comments": skipped_no_comments,
             "Skipped comment lookup failed": skipped_comment_lookup_failed,
             "Comment scope": comment_scope if should_query_comments else "댓글 조회 안 함",
@@ -1324,4 +1341,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        render_app_footer()
