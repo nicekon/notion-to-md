@@ -254,6 +254,7 @@ def compose_page_markdown(
     *,
     include_frontmatter: bool = True,
     include_properties: bool = True,
+    include_body: bool = True,
     include_comments: bool = True,
     omit_empty_comments: bool = False,
     include_source_url: bool = False,
@@ -290,7 +291,8 @@ def compose_page_markdown(
                 lines.append(markdown_table_row(name, rendered))
         lines.append("")
 
-    lines.extend(["## Body", "", body_markdown.strip() or "_본문 없음_", ""])
+    if include_body:
+        lines.extend(["## Body", "", body_markdown.strip() or "_본문 없음_", ""])
 
     if include_comments and (comments or not omit_empty_comments):
         lines.extend(["## Comments", "", comments_to_markdown(comments), ""])
@@ -310,6 +312,7 @@ def write_markdown_file(
     option_property: str | None = None,
     include_frontmatter: bool = True,
     include_properties: bool = True,
+    include_body: bool = True,
     include_comments: bool = True,
     omit_empty_comments: bool = False,
     include_source_url: bool = False,
@@ -330,6 +333,7 @@ def write_markdown_file(
         comments,
         include_frontmatter=include_frontmatter,
         include_properties=include_properties,
+        include_body=include_body,
         include_comments=include_comments,
         omit_empty_comments=omit_empty_comments,
         include_source_url=include_source_url,

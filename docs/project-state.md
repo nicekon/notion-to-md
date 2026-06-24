@@ -47,7 +47,7 @@ The UI is a three-step wizard.
    - User selects pages in a table.
    - User selects filename style and Markdown options.
    - User can include/exclude YAML frontmatter, properties table, source URL, comments section.
-   - User can save only pages that have comments.
+   - User can save only pages that have comments or export comments only.
    - User chooses comment scope: page comments only, or page + descendant block comments.
    - App writes Markdown files, `_export_summary.md`, and offers ZIP download.
 
@@ -67,18 +67,21 @@ The UI is a three-step wizard.
 - Falls back to user ID if Notion user information capability is missing.
 - Generates Markdown frontmatter and properties table.
 - Omits empty comments section when configured.
-- Supports "댓글 있는 페이지만 저장".
+- Supports "댓글 있는 페이지만 저장" and "댓글만 저장".
 - Records partial failures and warnings in UI and export summary.
 - Creates `_export_summary.md` for each export batch.
 - Prevents duplicate filenames by appending suffixes.
 - Provides filename styles based on title, page ID, date, status, and person.
 - Saves presets in `presets.json` without tokens.
 - Keeps secrets and exports out of git.
+- Displays the running app version near the title and in a small footer for deployment/restart confirmation.
+- Focused pytest coverage exists for filename generation and filter helpers.
 
 ## Important Files
 
 - `app.py`
   - Main Streamlit app.
+  - Defines `APP_VERSION` and renders visible version captions near the title and footer.
   - Contains wizard state in `st.session_state["wizard_step"]`.
   - Contains preview state such as `preview_pages`, `preview_rows`, `preview_config`.
   - Contains export state such as `export_results`, `export_files`, `export_issues`.
@@ -114,11 +117,13 @@ The UI is a three-step wizard.
 
 ```bash
 python3 -m py_compile app.py notion_to_md/*.py
+python3 -m pytest tests
 streamlit run app.py
 ```
 
 For UI verification, open `http://localhost:8501/` and check the wizard:
 
+- Confirm the title area shows `실행 중인 버전: v2026.06.24-comments-only` after restarting the server.
 - Step 1 should not show search/export controls.
 - Step 2 should not enable `다음: 내보내기` until preview matches current filters.
 - Step 3 should allow returning to search with `이전`.
@@ -151,12 +156,14 @@ Important constraints:
 - Keep it local-first and Python/Streamlit based.
 - Never commit .env, tokens, exports, presets, or generated cache files.
 - Run python3 -m py_compile app.py notion_to_md/*.py after Python edits.
+- Run python3 -m pytest tests after testable logic changes.
 - The current UI is a three-step wizard: 연결 > 검색 > 내보내기.
+- Confirm the visible app version after restart: `실행 중인 버전: v2026.06.24-comments-only`.
 ```
 
 ## Good Next Work
 
-- Add focused tests for filename generation and filter helpers.
+- Add more coverage around Streamlit wizard state and export summary rendering.
 - Improve large export progress feedback and cancellation behavior.
 - Add a small "connection status" summary on search/export steps.
 - Add optional export path chooser or per-run folder naming.
